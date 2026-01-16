@@ -1,0 +1,11 @@
+# 로드 밸런서가 실행될 포트
+port: ":8000"
+
+# 로드 밸런싱 전략 (round-robin, random, least-connection)
+strategy: "round-robin"
+
+# 백엔드 서버 목록
+backends:
+  - "http://localhost:9001"
+  - "http://localhost:9002"
+  - "http://localhost:9003"
