@@ -133,9 +133,11 @@ func (lb *LoadBalancer) NextBackend() *Backend {
 	// 1. Atomic 연산을 이용해 current 값을 1 증가시킴 (Lock 없이 안전하게 증가)
 	next := atomic.AddUint64(&lb.current, 1)
 
+	log.Printf("Debug: Current Count %d, Modulo %d", next, int(next)%l)
+
 	// 2. 시작 지점부터 한 바퀴 돌면서 살아있는 서버를 찾음
 	for i := 0; i < l; i++ {
-		idx := (int(next) * i) % l
+		idx := (int(next) + i) % l
 
 		if lb.backends[idx].IsAlive() {
 			if i != 0 {
