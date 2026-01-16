@@ -85,6 +85,146 @@ backends:
   - "http://localhost:9003"
 ```
 
+## 📊 성능 테스트 결과 (Performance Benchmark)
+
+`hey` 도구를 사용하여 로드 밸런서의 성능을 테스트한 결과입니다.
+
+### Scenario 1: 기본 성능 테스트 (Basic Performance)
+기본적인 요청 처리 성능을 측정합니다. (Total 2000 requests, 50 concurrent)
+
+```bash
+hey -n 2000 -c 50 http://localhost:8000
+```
+
+**Result Summary:**
+```text
+Summary:
+  Total:        0.1146 secs
+  Slowest:      0.0131 secs
+  Fastest:      0.0001 secs
+  Average:      0.0028 secs
+  Requests/sec: 17448.5241
+  
+  Total data:   124000 bytes
+  Size/request: 62 bytes
+
+Response time histogram:
+  0.000 [1]     |
+  0.001 [427]   |■■■■■■■■■■■■■■■■■■■■■■■
+  0.003 [753]   |■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■
+  0.004 [485]   |■■■■■■■■■■■■■■■■■■■■■■■■■■
+  0.005 [197]   |■■■■■■■■■■
+  0.007 [58]    |■■■
+  0.008 [22]    |■
+  0.009 [14]    |■
+  0.011 [14]    |■
+  0.012 [20]    |■
+  0.013 [9]     |
+
+
+Latency distribution:
+  10% in 0.0009 secs
+  25% in 0.0015 secs
+  50% in 0.0023 secs
+  75% in 0.0035 secs
+  90% in 0.0048 secs
+  95% in 0.0061 secs
+  99% in 0.0116 secs
+
+Details (average, fastest, slowest):
+  DNS+dialup:   0.0001 secs, 0.0001 secs, 0.0131 secs
+  DNS-lookup:   0.0001 secs, 0.0000 secs, 0.0027 secs
+  req write:    0.0000 secs, 0.0000 secs, 0.0009 secs
+  resp wait:    0.0026 secs, 0.0001 secs, 0.0098 secs
+  resp read:    0.0001 secs, 0.0000 secs, 0.0010 secs
+
+Status code distribution:
+  [200] 2000 responses
+```
+
+### Scenario 2: Hot Reload 안정성 테스트 (Stability during Hot Reload)
+트래픽이 지속적으로 들어오는 상황(10초간 부하)에서 `config.yaml`의 백엔드 서버 하나(Port 9002)를 제거하고 `Configuration Reload`를 수행했을 때의 안정성을 테스트했습니다.
+
+**결과: 에러율 0% (모든 요청 200 OK 처리)**
+
+```bash
+hey -z 10s -c 50 http://localhost:8000
+```
+
+**Result Summary:**
+```text
+Summary:
+  Total:        10.0199 secs
+  Slowest:      0.1059 secs
+  Fastest:      0.0001 secs
+  Average:      0.0083 secs
+  Requests/sec: 6014.4112
+  
+  Total data:   3736368 bytes
+  Size/request: 62 bytes
+
+Response time histogram:
+  0.000 [1]     |
+  0.011 [41660] |■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■
+  0.021 [11454] |■■■■■■■■■■■
+  0.032 [5849]  |■■■■■■
+  0.042 [1068]  |■
+  0.053 [97]    |
+  0.064 [44]    |
+  0.074 [62]    |
+  0.085 [21]    |
+  0.095 [5]     |
+  0.106 [3]     |
+
+
+Latency distribution:
+  10% in 0.0010 secs
+  25% in 0.0017 secs
+  50% in 0.0034 secs
+  75% in 0.0137 secs
+  90% in 0.0224 secs
+  95% in 0.0270 secs
+  99% in 0.0352 secs
+
+Details (average, fastest, slowest):
+  DNS+dialup:   0.0000 secs, 0.0001 secs, 0.1059 secs
+  DNS-lookup:   0.0000 secs, 0.0000 secs, 0.0021 secs
+  req write:    0.0000 secs, 0.0000 secs, 0.0005 secs
+  resp wait:    0.0083 secs, 0.0001 secs, 0.1058 secs
+  resp read:    0.0000 secs, 0.0000 secs, 0.0006 secs
+
+Status code distribution:
+  [200] 60264 responses
+```
+
+**Traffic Distribution Change Log:**
+서버 로그를 통해 트래픽 분산이 실시간으로 변경되는 것을 확인했습니다.
+
+**Before Reload (3 Servers)**:
+`Server 2`가 포함된 상태로 트래픽이 분산됩니다.
+```text
+[Server 2] 요청 받음!
+[Server 3] 요청 받음!
+[Server 2] 요청 받음!
+[Server 1] 요청 받음!
+[Server 1] 요청 받음!
+[Server 3] 요청 받음!
+[Server 1] 요청 받음!
+```
+
+**After Reload (2 Servers, Server 2 removed)**:
+`Server 2` 제거 후, 트래픽이 `Server 1`과 `Server 3`으로만 분산됩니다.
+```text
+[Server 3] 요청 받음!
+[Server 1] 요청 받음!
+[Server 3] 요청 받음!
+[Server 1] 요청 받음!
+[Server 3] 요청 받음!
+[Server 1] 요청 받음!
+```
+Hot Reload 적용 즉시 새로운 설정이 반영되어, 서비스 중단 없이 유연하게 서버를 관리할 수 있습니다.
+
+
 ## 📂 프로젝트 구조
 
 ```
