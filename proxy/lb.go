@@ -35,30 +35,19 @@ func (b *Backend) IsAlive() bool {
 
 // LoadBalancer 구조체
 type LoadBalancer struct {
+	backendMux sync.RWMutex
 	backends []*Backend
 	current  uint64
 }
 
 // NewLoadBalancer 생성자: URL 문자열 리스트를 받아서 초기화
 func NewLoadBalancer(urls []string) *LoadBalancer {
-	var backends []*Backend
-
-	for _, u := range urls {
-		parsedURL, err := url.Parse(u)
-		if err != nil {
-			log.Fatalf("Failed to parse URL: %v", err)
-		}
-		backends = append(backends, &Backend{
-			URL: parsedURL,
-			Alive: true,
-			ReverseProxy: httputil.NewSingleHostReverseProxy(parsedURL),
-		})
-	}
-
 	lb := &LoadBalancer{
-		backends: backends,
-		current:  0,
+		current: 0,
 	}
+
+	// 초기 백엔드 설정
+	lb.UpdateBackends(urls)
 
 	// 별도의 고루틴으로 헬스 체크 시작
 	go lb.HealthCheck()
@@ -66,14 +55,45 @@ func NewLoadBalancer(urls []string) *LoadBalancer {
 	return lb
 }
 
+// UpdateBackends: 실행 중에 백엔드 리스트를 통째로 교채 (Hot Reload)
+func (lb *LoadBalancer) UpdateBackends(urls []string) {
+	var newBackends []*Backend
+	
+	for _, u := range urls {
+		parseUrl, err := url.Parse(u)
+		if err != nil {
+			log.Printf("[Error] Fail to parse URL %s: %v", u, err)
+			continue
+		}
+
+		newBackends = append(newBackends, &Backend{
+			URL: parseUrl,
+			Alive: true,
+			ReverseProxy: httputil.NewSingleHostReverseProxy(parseUrl),
+		})
+	}
+
+	// 교체하는 순간에 Write Lock을 걸어 안전하게 교체
+	lb.backendMux.Lock()
+	lb.backends = newBackends
+	lb.backendMux.Unlock()
+
+	log.Printf("[Info] Updated backends: %v\n", urls)
+}
+
 // HealthCheck: 주기적으로 서버에 연결을 시도해서 상태 업데이트
 func (lb *LoadBalancer) HealthCheck() {
 	t := time.NewTicker(time.Second * 5)
 	defer t.Stop()
 	for range t.C {
+		// 현재 시점의 백엔드 리스트를 읽기 위해 Read Lock 사용
+		lb.backendMux.RLock()
+		currentBackends := lb.backends
+		lb.backendMux.RUnlock()
+		
 		log.Println("--- Health Check Start ---")
 
-		for _, b := range lb.backends {
+		for _, b := range currentBackends {
 			status := "up"
 			alive := isBackendAlive(b.URL)
 			b.SetAlive(alive)
@@ -102,9 +122,16 @@ func isBackendAlive(u *url.URL) bool {
 
 // NextBackend: '살아있는' 서버만 골라서 반환 (무한 루프 방지)
 func (lb *LoadBalancer) NextBackend() *Backend {
+	lb.backendMux.RLock()
+	defer lb.backendMux.RUnlock()
+
+	l := len(lb.backends)
+	if l == 0 {
+		return nil
+	}
+	
 	// 1. Atomic 연산을 이용해 current 값을 1 증가시킴 (Lock 없이 안전하게 증가)
 	next := atomic.AddUint64(&lb.current, 1)
-	l := len(lb.backends)
 
 	// 2. 시작 지점부터 한 바퀴 돌면서 살아있는 서버를 찾음
 	for i := 0; i < l; i++ {

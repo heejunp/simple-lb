@@ -7,5 +7,4 @@ strategy: "round-robin"
 # 백엔드 서버 목록
 backends:
   - "http://localhost:9001"
-  - "http://localhost:9002"
   - "http://localhost:9003"

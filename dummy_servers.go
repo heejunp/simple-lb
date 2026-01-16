@@ -23,7 +23,7 @@ func main() {
 
 	// 9001, 9002, 9003 포트에 서버 3개 동시에 띄우기
 	go func() { runServer(":9001", "Server 1"); wg.Done() }()
-	// go func() { runServer(":9002", "Server 2"); wg.Done() }()
+	go func() { runServer(":9002", "Server 2"); wg.Done() }()
 	go func() { runServer(":9003", "Server 3"); wg.Done() }()
 
 	wg.Wait()
